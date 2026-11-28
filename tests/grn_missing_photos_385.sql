@@ -140,7 +140,7 @@ SELECT pg_temp.gm_assert(pg_temp.gm_details(:'staff_claims'::jsonb, :'g'::uuid)#
 -- M10: the report logs its GRN, once, as an update the customer's feed can see.
 SELECT pg_temp.gm_assert((SELECT count(*) = 1 AND bool_and(tbl = 'goodsreceived' AND row_key = :'g' AND op = 'U' AND old_customer = :'ca'::uuid
     AND new_customer = :'ca'::uuid AND grn_id = :'g'::uuid) FROM warehouse_sync.change_log),
-  'M10: a report logs exactly its GRN as an update with its customer: ' || COALESCE((SELECT string_agg(tbl || ':' || row_key || ':' || op, ',') FROM warehouse_sync.change_log), 'nothing'));
+  'M10: a report logs exactly its GRN as an update with its customer: ' || COALESCE((SELECT string_agg(tbl::text || ':' || row_key::text || ':' || op::text, ',') FROM warehouse_sync.change_log), 'nothing'));
 
 -- ===== M2. Repeats =====
 DELETE FROM warehouse_sync.change_log;
