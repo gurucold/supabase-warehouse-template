@@ -5,8 +5,9 @@
 --     short install mark, for example "Samsung SM-A156E · 7F3A"). It is kept as text on the row, not looked up later from the session, so it
 --     stays right after the session ends or is signed out. Rows held before this migration stay NULL (their only record of the phone is a
 --     user agent, which is never a name). The column `phone` (the user agent of the handing session) stays as it is and is no longer read.
---  2. public.hold_items(p_items jsonb, p_recorder uuid DEFAULT NULL, p_device_name text DEFAULT NULL): the new last parameter is trimmed,
---     cut to 80 characters (never refused) and stored on every row of the call; empty or absent is NULL. The old two-argument function is
+--  2. public.hold_items(p_items jsonb, p_recorder uuid DEFAULT NULL, p_device_name text DEFAULT NULL): the new last parameter is cleaned
+--     (warehouse_security.clean_device_name, cut to 80 characters, never refused) and stored on every row of the call; empty or absent is
+--     NULL. The old two-argument function is
 --     dropped (two overloads with defaults would be ambiguous); a phone that does not send the name still calls it by its two names.
 --     The caller and role checks are unchanged. The function is patched from its present text, as migration 244 does.
 --  3. warehouse_security.held_row (the row of get_held_items, get_held_item, their followers and the sync feed) returns `device_name`
@@ -40,6 +41,26 @@ ALTER TABLE public.held_items ADD COLUMN device_name text;
 COMMENT ON COLUMN public.held_items.device_name IS
   'WH-410: the name the recording phone sent with the item (at most 80 characters), kept as sent so it survives the session. NULL when none was sent. Never a user agent.';
 
+-- WH-424: the one form a phone name is stored in, here and for signed-in devices (topic "session device name"). Control characters (C0,
+-- C1), the line and paragraph separators and every format character (soft hyphen, zero-width characters and joiners, byte order mark, bidi
+-- marks, overrides and isolates, tags) are removed, so an emoji joined by U+200D is stored as its whole parts. Other spaces become a plain
+-- space. The result is trimmed and cut to 80 characters (code points, not bytes); nothing left is NULL. It never raises. The same sets are
+-- in functions/_shared/client-info.ts.
+CREATE FUNCTION warehouse_security.clean_device_name(p_name text) RETURNS text
+  LANGUAGE sql IMMUTABLE
+  SET search_path TO 'pg_catalog', 'pg_temp'
+AS $$
+  SELECT NULLIF(btrim(left(btrim(
+    regexp_replace(
+      regexp_replace(p_name,
+        '[\U00000001-\U0000001F\U0000007F-\U0000009F\U000000AD\U00000600-\U00000605\U0000061C\U000006DD\U0000070F\U00000890-\U00000891\U000008E2\U0000180E\U0000200B-\U0000200F\U00002028-\U0000202E\U00002060-\U00002064\U00002066-\U0000206F\U0000FEFF\U0000FFF9-\U0000FFFB\U000110BD\U000110CD\U00013430-\U0001343F\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0001\U000E0020-\U000E007F]',
+        '', 'g'),
+      '[\U000000A0\U00001680\U00002000-\U0000200A\U0000202F\U0000205F\U00003000]', ' ', 'g')
+  ), 80)), '')
+$$;
+ALTER FUNCTION warehouse_security.clean_device_name(text) OWNER TO supabase_admin;
+REVOKE ALL ON FUNCTION warehouse_security.clean_device_name(text) FROM PUBLIC, anon, authenticated, service_role;
+
 -- ===== 2. hold_items takes the name =====
 SELECT pg_temp.patch_function('public.hold_items(jsonb, uuid)'::regprocedure, ARRAY[
 $m$FUNCTION public.hold_items(p_items jsonb, p_recorder uuid DEFAULT NULL::uuid)$m$,
@@ -51,8 +72,8 @@ $m$v_at, v_phone, v_caller,$m$
 $m$FUNCTION public.hold_items(p_items jsonb, p_recorder uuid DEFAULT NULL::uuid, p_device_name text DEFAULT NULL::text)$m$,
 $m$  v_phone text;
   v_device text;$m$,
-$m$  -- The phone's own name: trimmed, cut to 80 characters, empty is none.
-  v_device := NULLIF(btrim(left(btrim(p_device_name), 80)), '');
+$m$  -- The phone's own name: cleaned and cut to 80 characters, empty is none.
+  v_device := warehouse_security.clean_device_name(p_device_name);
 
   v_answers := array_fill($m$,
 $m$recorded_at, phone, device_name, handed_by,$m$,

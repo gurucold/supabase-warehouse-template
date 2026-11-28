@@ -1,11 +1,11 @@
 -- WH-411, topic "session device name". Named by topic; its number is taken when the work is assembled for main. It needs migrations 140 (session
 -- devices), 163 (issue_session with the network key), 170 (redeem_pairing_code) and the sign-in patches of 154 and 168, all in the numbered
--- chain before it.
+-- chain before it, and the topic "held item device name" (warehouse_security.clean_device_name).
 --  1. warehouse_security.refresh_sessions.device_name (text, nullable, at most 80 characters): the phone's own name, as the phone sends it
 --     (maker and model plus a short install mark, for example "Samsung SM-A156E · 7F3A"; the same name WH-410 keeps on held items). Sessions
 --     made before this migration stay NULL; the user agent column is unchanged.
---  2. warehouse_security.issue_session(p_user, p_session, p_ip, p_user_agent, p_device_name DEFAULT NULL): the new last parameter is trimmed,
---     cut to 80 characters (never refused), empty is NULL, and a new session stores it. A refresh leaves the stored name alone (the
+--  2. warehouse_security.issue_session(p_user, p_session, p_ip, p_user_agent, p_device_name DEFAULT NULL): the new last parameter is cleaned
+--     (clean_device_name: cut to 80 characters, never refused, empty is NULL), and a new session stores it. A refresh leaves the stored name alone (the
 --     rotation updates the same row). The four-argument function is dropped (two overloads with defaults would be ambiguous); every call
 --     with up to four arguments binds to the new one.
 --  3. The sign-in RPCs gain a last parameter p_device_name and pass it to issue_session: operator_verify_otp (7 arguments),
@@ -72,8 +72,8 @@ CREATE FUNCTION warehouse_security.issue_session(p_user uuid, p_session uuid DEF
     AS $$
 DECLARE refresh text; session_id uuid; sliding boolean; idle_seconds integer := warehouse_security.session_idle_seconds(); max_seconds integer := warehouse_security.session_max_seconds();
   new_key bytea;
-  -- The phone's own name: trimmed, cut to 80 characters, empty is none.
-  v_device text := NULLIF(btrim(left(btrim(p_device_name), 80)), '');
+  -- The phone's own name: cleaned and cut to 80 characters, empty is none.
+  v_device text := warehouse_security.clean_device_name(p_device_name);
 BEGIN
   SELECT p.enrollment_status = 'approved' INTO sliding FROM public.user_profiles p WHERE p.auth_user_id = p_user AND p.active;
   IF NOT FOUND THEN RAISE EXCEPTION 'Active account required' USING ERRCODE = 'P0002'; END IF;
@@ -196,7 +196,7 @@ CREATE FUNCTION public.set_session_device_name(p_device_name text) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public', 'extensions'
     AS $$
-DECLARE v_name text := NULLIF(btrim(left(btrim(p_device_name), 80)), ''); v_session text := auth.jwt()->>'session_id';
+DECLARE v_name text := warehouse_security.clean_device_name(p_device_name); v_session text := auth.jwt()->>'session_id';
 BEGIN
   PERFORM warehouse_security.authorize_rpc('set_session_device_name', jsonb_build_object());
   IF v_name IS NOT NULL AND v_session ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
@@ -208,7 +208,7 @@ END $$;
 ALTER FUNCTION public.set_session_device_name(text) OWNER TO supabase_admin;
 REVOKE ALL ON FUNCTION public.set_session_device_name(text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.set_session_device_name(text) TO authenticated, service_role;
-COMMENT ON FUNCTION public.set_session_device_name(text) IS 'WH-411: the signed-in phone names its own session when the session has no name yet (trimmed, at most 80 characters; a stored name is kept). Answers {success:true} whatever happened.';
+COMMENT ON FUNCTION public.set_session_device_name(text) IS 'WH-411: the signed-in phone names its own session when the session has no name yet (control and format characters removed, trimmed, at most 80 characters; a stored name is kept). Answers {success:true} whatever happened.';
 
 -- ===== 5. the list returns the name =====
 SELECT pg_temp.patch_function('public.list_user_sessions(uuid)'::regprocedure, ARRAY[

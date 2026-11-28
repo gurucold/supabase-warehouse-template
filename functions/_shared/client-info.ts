@@ -17,9 +17,13 @@ export function clientUserAgent(req: Request): string | null {
 }
 
 // The phone's own name (maker, model and a short install mark) from the request body, as the app sends it in `device_name`; null when it is
-// absent, not a string or empty. Cut to 200 characters here; the database trims it and keeps 80. It is stored and shown beside the signed-in
-// device and is never logged.
+// absent, not a string or nothing is left of it. Control, format and line or paragraph separator characters are removed (so an emoji joined
+// by U+200D becomes its whole parts), as are lone surrogates, which the database would refuse; other spaces become a plain space. The result
+// is trimmed and cut to 80 code points, never inside a character. The database applies the same rule
+// (warehouse_security.clean_device_name). It is stored and shown beside the signed-in device and is never logged.
 export function clientDeviceName(body: Record<string, unknown>): string | null {
   const name = body.device_name;
-  return typeof name === 'string' && name.trim() !== '' ? name.slice(0, 200) : null;
+  if (typeof name !== 'string') return null;
+  const clean = name.replace(/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu, '').replace(/\p{Zs}/gu, ' ').trim();
+  return Array.from(clean).slice(0, 80).join('').trimEnd() || null;
 }
