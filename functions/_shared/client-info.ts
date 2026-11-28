@@ -15,3 +15,11 @@ export function clientUserAgent(req: Request): string | null {
   const agent = req.headers.get('user-agent');
   return agent ? agent.slice(0, 300) : null;
 }
+
+// The phone's own name (maker, model and a short install mark) from the request body, as the app sends it in `device_name`; null when it is
+// absent, not a string or empty. Cut to 200 characters here; the database trims it and keeps 80. It is stored and shown beside the signed-in
+// device and is never logged.
+export function clientDeviceName(body: Record<string, unknown>): string | null {
+  const name = body.device_name;
+  return typeof name === 'string' && name.trim() !== '' ? name.slice(0, 200) : null;
+}

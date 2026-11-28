@@ -9,7 +9,7 @@
 // unknown one all answer 409 PAIRING_CODE_INVALID. Only a local-only facility answers at all.
 import { restBaseUrl } from '../_shared/rest-url.ts';
 import { securityHeaders } from '../_shared/security-headers.ts';
-import { clientAddress, clientUserAgent } from '../_shared/client-info.ts';
+import { clientAddress, clientDeviceName, clientUserAgent } from '../_shared/client-info.ts';
 
 const headers = { ...securityHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
 const respond = (body: unknown, status = 200, extra: Record<string, string> = {}) => new Response(JSON.stringify(body), { status, headers: { ...headers, ...extra } });
@@ -48,7 +48,8 @@ export async function handle(req: Request, env: (name: string) => string | undef
   try {
     const response = await doFetch(`${restBaseUrl(url, env('SUPABASE_REST_URL'))}/rpc/redeem_pairing_code`, {
       method: 'POST', headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ p_code: code, p_ip: clientAddress(req), p_user_agent: clientUserAgent(req) }),
+      body: JSON.stringify({ p_code: code, p_ip: clientAddress(req), p_user_agent: clientUserAgent(req),
+        ...(clientDeviceName(body) ? { p_device_name: clientDeviceName(body) } : {}) }),
       signal: AbortSignal.timeout(15000), redirect: 'error',
     });
     if (!response.ok) throw new Error(`status ${response.status}`);
