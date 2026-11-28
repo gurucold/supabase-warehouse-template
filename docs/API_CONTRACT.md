@@ -1598,7 +1598,7 @@ entries, same rows) to administrators, supervisors and staff only.
 
 Items the server refused wait here for a supervisor or administrator; nothing in the list is deleted or dropped for age.
 
-- `hold_items(p_items jsonb, p_recorder uuid DEFAULT NULL)`: administrators, supervisors and staff (never a customer account). `p_items` is at
+- `hold_items(p_items jsonb, p_recorder uuid DEFAULT NULL, p_device_name text DEFAULT NULL)`: administrators, supervisors and staff (never a customer account). `p_device_name` is the recording phone's own name (maker, model and a short install mark, such as "Samsung SM-A156E · 7F3A"): trimmed, cut to 80 characters (never refused), empty is none; stored on each new row as `device_name` (a repeated request key keeps its first row). A phone that omits it still works. `p_items` is at
   most 50 items in `seq` order, each `{request_key, kind, body, seq, recorded_at, follows_key?, what?, customer_id?, refusal?: {code?, reason?, data?}}`,
   `kind` one of `newGrn`, `newDispatch`, `grnEdit`, `lotChange`, `photos`. `p_recorder` (an administrator only) is another person's auth id: their unsent
   items are moved (`source` moved). Answer `{success, held: [{request_key, id, state} | {request_key, id, state, idempotent: true} |
@@ -1625,8 +1625,8 @@ Items the server refused wait here for a supervisor or administrator; nothing in
   (integer, 0 when none, for every role that gets the GRN, a customer account included); the `goodsreceived` row of the sync feed carries
   `photos_missing` only when it is above 0. Nothing else about the photos leaves the server.
 - `get_held_items(p_limit int DEFAULT 50, p_offset int DEFAULT 0)`, administrators and supervisors: `{success, rows, total}`, open items only,
-  oldest first, an item that follows another directly under it; a row `{id, kind, what, customer_name, recorded_by_name, recorded_at, phone,
-  reason, reason_data, state, follows, needs_decision, can_accept, decided_by_name, decided_at, reject_reason, result}` (`reason` is one of
+  oldest first, an item that follows another directly under it; a row `{id, kind, what, customer_name, recorded_by_name, recorded_at, phone, device_name,
+  reason, reason_data, state, follows, needs_decision, can_accept, decided_by_name, decided_at, reject_reason, result}` (`device_name` is the name the phone sent, or null: rows held before WH-410 and phones that sent none; `phone` is the handing session's user agent as before, not a name. `reason` is one of
   `stockShort`, `noRate`, `numberUsed`, `numberFormat`, `dateRefused`, `duplicate`, `deleted`, `locked`, `belowDispatched`, `followsHeld`, `moved`,
   `other`; a moved item's `reason_data` is `{admin_name, recorder_name, moved_at}`).
 - `get_held_item(p_id uuid)`, administrators and supervisors: `{success, <the list row>, reason_code, body, accepted_body, photos, followers,
