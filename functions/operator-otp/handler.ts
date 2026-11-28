@@ -1,6 +1,6 @@
 import { restBaseUrl } from '../_shared/rest-url.ts';
 import { securityHeaders } from '../_shared/security-headers.ts';
-import { clientAddress, clientUserAgent } from '../_shared/client-info.ts';
+import { clientAddress, clientDeviceName, clientUserAgent } from '../_shared/client-info.ts';
 import { readBoundedJson } from './body.ts';
 import { deliverOtp, type Delivery, Msg91DeliveryError } from './provider.ts';
 
@@ -140,6 +140,8 @@ export async function handle(req: Request, overrides: Partial<HandlerDeps> = {})
         p_ip_address: clientAddress(req),
         // Shown beside the signed-in device (migration 140).
         p_user_agent: clientUserAgent(req),
+        // The phone's own name, only when the app sent one (WH-411).
+        ...(clientDeviceName(body) ? { p_device_name: clientDeviceName(body) } : {}),
       });
       return result.success ? respond(result) : failure(result);
     }
@@ -150,7 +152,8 @@ export async function handle(req: Request, overrides: Partial<HandlerDeps> = {})
       if (typeof body.phone_number !== 'string' || typeof body.code !== 'string') return failure({ code: 'invalid_request' });
       const phone = body.phone_number.replace(/\D/g, '');
       if (!/^(?:91)?[0-9]{10}$/.test(phone) || !/^[0-9]{6}$/.test(body.code)) return failure({ code: 'invalid_request' });
-      const result = await rpc(deps, 'operator_break_glass_sign_in', { p_phone_number: phone, p_code: body.code, p_ip_address: clientAddress(req), p_user_agent: clientUserAgent(req) });
+      const result = await rpc(deps, 'operator_break_glass_sign_in', { p_phone_number: phone, p_code: body.code, p_ip_address: clientAddress(req), p_user_agent: clientUserAgent(req),
+        ...(clientDeviceName(body) ? { p_device_name: clientDeviceName(body) } : {}) });
       return result.success ? respond(result) : failure(result);
     }
     if (typeof body.enrollment_token !== 'string' || !/^[0-9a-f]{64}$/.test(body.enrollment_token)) return failure({ code: 'invalid_request' });

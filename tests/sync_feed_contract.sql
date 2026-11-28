@@ -320,7 +320,11 @@ BEGIN
       ORDER BY x);
     SELECT string_agg(DISTINCT array_to_string(ARRAY(SELECT k FROM jsonb_object_keys(c.row) k ORDER BY k), ','), ' | ') INTO bad
       FROM pg_temp.sf_copy c WHERE c.slot = p AND c.e = ent
-      AND ARRAY(SELECT k FROM jsonb_object_keys(c.row) k ORDER BY k) IS DISTINCT FROM want;
+      -- WH-385: a goodsreceived row carries photos_missing, for every role, exactly when the GRN has missing photos (its value is checked by
+      -- sync_feed_grn_missing_photos_385.sql).
+      AND ARRAY(SELECT k FROM jsonb_object_keys(c.row) k ORDER BY k) IS DISTINCT FROM
+        (CASE WHEN ent = 'goodsreceived' AND EXISTS (SELECT 1 FROM public.grn_missing_photos m WHERE m.grn_id::text = c.id)
+              THEN ARRAY(SELECT x FROM unnest(want || 'photos_missing'::text) x ORDER BY x) ELSE want END);
     IF bad IS NOT NULL THEN problems := problems || format('%s columns %s, expected %s', ent, bad, array_to_string(want, ',')); END IF;
   END LOOP;
   RETURN array_to_string(problems, '; ');

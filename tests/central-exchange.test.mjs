@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SignJWT, exportJWK, exportSPKI, generateKeyPair } from 'jose';
 import { TOKEN_TYPE, createKeyCache, handle } from '../functions/central-exchange/handler.ts';
 import { advertisedCentralIssuer, advertisedCentralLogin, httpsAddress } from '../functions/_shared/https-address.ts';
+import { deviceNameCases } from './device-name-cases.mjs';
 
 // No network and no central service: the tests make their own ES256 keys, serve
 // the key set through the injected fetch, and stand in for the PostgREST RPC.
@@ -577,4 +578,29 @@ test('get-public-config advertises central sign-in only where a token could be a
     assert.equal(httpsAddress(value), false, String(value));
   }
   assert.equal(httpsAddress('https://login.example.test/path?x=1'), true);
+});
+
+test('WH-411, WH-424: the phone name of the body goes to the exchange as p_device_name, cleaned and cut to 80 code points; without a usable name the key is left out and the sign-in goes on', async () => {
+  const h = harness();
+  for (const [index, [sent, expected]] of deviceNameCases.entries()) {
+    // Each case has its own single-use token.
+    const token = await sign(claims(START, { jti: `token-id-00000000000004${String(index).padStart(2, '0')}` }));
+    const label = `case ${index} ${JSON.stringify(sent)}`;
+    const answered = await h.exchange(token, { device_name: sent }, { 'User-Agent': 'okhttp/4.9.2' });
+    assert.deepEqual(answered, { status: 200, body: loginAnswer }, label);
+    const { body } = h.rpcCalls[index];
+    // An absent key keeps the ten-argument call, which a facility without the new function signature still answers.
+    assert.equal(Object.hasOwn(body, 'p_device_name'), expected !== undefined, label);
+    assert.equal(body.p_device_name, expected, label);
+    assert.equal(body.p_user_agent, 'okhttp/4.9.2', 'the user agent is passed beside the name, not replaced by it');
+  }
+  assert.equal(h.rpcCalls.length, deviceNameCases.length);
+});
+
+test('WH-411: the phone name is never logged and never answered, also when the facility refuses the exchange', async () => {
+  const h = harness({ rpcAnswer: { success: false, code: 'account_unavailable' } });
+  await h.exchange(await sign(claims(START)), { device_name: 'Private Phone Name (1A2B)' });
+  assert.equal(h.rpcCalls[0].body.p_device_name, 'Private Phone Name (1A2B)');
+  assert.ok(h.logs.length >= 1, 'the refusal was logged');
+  assert.doesNotMatch(`${h.logs.join('\n')}\n${h.responses.join('\n')}`, /Private Phone Name|1A2B/);
 });

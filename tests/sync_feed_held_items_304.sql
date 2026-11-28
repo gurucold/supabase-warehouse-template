@@ -134,6 +134,20 @@ SELECT COALESCE((SELECT c.row->>'customer_name' FROM pg_temp.sf_copy c WHERE c.s
 SELECT pg_temp.sf_assert(:'f6_feed_name' = 'Held Feed North' AND :'f6_row_name' = 'Held Feed North',
   'B-F6: the recorder''s feed row names the body''s customer, not the phone''s (feed row: ' || :'f6_feed_name' || ', held row: ' || :'f6_row_name' || ', want Held Feed North)');
 
+-- ===== WH-410: the recorder's full row carries the phone's own name =====
+SELECT pg_temp.sf_assert(pg_temp.sf_as(:'staff_claims'::jsonb, format('SELECT public.hold_items(%L::jsonb, NULL, %L)',
+    jsonb_build_array(pg_temp.hf_item('hf-n1', 'newDispatch', 70, :'north'::uuid)), 'Samsung SM-A156E (7F3A)'))->>'success' = 'true', 'fixture: a hand-over with a name');
+SELECT pg_temp.hf_id('hf-n1') AS n1row \gset
+SELECT pg_temp.hf_step('phone name');
+SELECT pg_temp.sf_assert((SELECT c.row->>'device_name' = 'Samsung SM-A156E (7F3A)' FROM pg_temp.sf_copy c WHERE c.slot = 'staff' AND c.e = 'held_items' AND c.id = :'n1row'),
+  'WH-410: the name sent with a hand-over reaches the recorder''s copy through the feed: ' || pg_temp.hf_keys('staff', :'n1row'));
+SELECT pg_temp.sf_assert((SELECT NOT c.row ? 'device_name' AND c.row ? 'phone' FROM pg_temp.sf_copy c WHERE c.slot = 'staff' AND c.e = 'held_items' AND c.id = :'c1row')
+  AND pg_temp.hf_keys('staff', :'c1row') = replace(pg_temp.hf_keys('staff', :'n1row'), 'device_name,', '')
+  AND pg_temp.hf_keys('staff', :'n1row') LIKE '%device_name,%',
+  'WH-423: a hand-over that sent no name has no device_name key and otherwise the keys of a named row: ' || pg_temp.hf_keys('staff', :'c1row') || ' / ' || pg_temp.hf_keys('staff', :'n1row'));
+SELECT pg_temp.sf_assert(pg_temp.hf_keys(p, :'n1row') = 'id,kind,lines,needs_decision,state', 'WH-410: a manager''s feed row gains no key: ' || pg_temp.hf_keys(p, :'n1row'))
+  FROM unnest(ARRAY['admin', 'supervisor']) p;
+
 -- ===== B-F5. 5,000 held rows: every answer stays inside 2,000 rows and 8 seconds =====
 SELECT pg_temp.sf_phone('admin_old', :'sf_admin_claims'::jsonb);
 SELECT pg_temp.sf_first_load('admin_old');

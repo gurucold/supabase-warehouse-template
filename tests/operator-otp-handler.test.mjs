@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { handle } from '../functions/operator-otp/handler.ts';
+import { deviceNameCases } from './device-name-cases.mjs';
 
 // No network: every outbound call (PostgREST RPC and MSG91) goes to this stand-in.
 const environment = {
@@ -396,4 +397,26 @@ test('break-glass: refusals carry their code and the right status, and the close
   const broken = Response.json({ message: 'relation "x" does not exist' }, { status: 500 });
   assert.deepEqual(await bodyOf(await harness({ operator_break_glass_sign_in: broken }).call('break-glass', { ...phone, code: '654321' })),
     { status: 503, body: { success: false, error: 'Authentication service unavailable' } });
+});
+
+test('WH-411, WH-424: the phone name of the body goes to the code sign-in and the break-glass sign-in as p_device_name, cleaned and cut to 80 code points; otherwise the key is left out and the sign-in goes on', async () => {
+  for (const [sent, expected] of deviceNameCases) {
+    const { calls, call } = harness({ operator_break_glass_sign_in: { success: true, data: { action: 'login' } } });
+    assert.equal((await call('verify', { ...phone, otp_code: '123456', device_name: sent })).status, 200);
+    assert.equal((await call('break-glass', { ...phone, code: '654321', device_name: sent })).status, 200);
+    for (const name of ['operator_verify_otp', 'operator_break_glass_sign_in']) {
+      const { body } = calls.find(entry => entry.name === name);
+      assert.equal(Object.hasOwn(body, 'p_device_name'), expected !== undefined, `${name} ${JSON.stringify(sent)}`);
+      assert.equal(body.p_device_name, expected, `${name} ${JSON.stringify(sent)}`);
+    }
+  }
+});
+
+test('WH-411: the phone name is passed only to the two sign-ins, not to the code request or the enrollment calls', async () => {
+  const { calls, call } = harness();
+  await call('request', { ...phone, device_name: 'Samsung SM-A156E (7F3A)' });
+  await call('status', { enrollment_token: token, device_name: 'Samsung SM-A156E (7F3A)' });
+  await call('signout', { enrollment_token: token, device_name: 'Samsung SM-A156E (7F3A)' });
+  assert.ok(calls.length >= 3);
+  assert.doesNotMatch(JSON.stringify(calls.map(entry => entry.body)), /p_device_name|SM-A156E/);
 });

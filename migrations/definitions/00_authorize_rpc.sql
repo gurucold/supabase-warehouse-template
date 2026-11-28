@@ -89,7 +89,7 @@ BEGIN
     'get_customer_grn_activity','get_customer_grn_items',
     'get_customer_grns_with_stock_dispatch_sorted',
     'search_customers','get_supervisors','get_vehicle_suggestions',
-    'register_grn_image_upload','confirm_grn_image_upload',
+    'register_grn_image_upload','confirm_grn_image_upload','mark_grn_photo_missing',
     'cancel_grn_image_upload','upload_grn_image',
     'register_dispatch_image_upload','confirm_dispatch_image_upload',
     'cancel_dispatch_image_upload',
@@ -157,6 +157,8 @@ BEGIN
   IF rpc IN ('get_items','get_item','search_items_autocomplete','get_orders_list','delete_user_account','revoke_session') THEN RETURN; END IF;
   -- A phone hands over its connection gap notes (migration 188, WH-177): any signed-in account, for its own device.
   IF rpc = 'submit_connection_notes' THEN RETURN; END IF;
+  -- A phone names its own session when it has no name yet (WH-411): any signed-in account, for its own session.
+  IF rpc = 'set_session_device_name' THEN RETURN; END IF;
   -- The temperature report and its sensor chooser (migration 187, WH-157): staff and customer accounts too, for every sensor (owner,
   -- 2026-11-11), with no customer-ownership check. Every other sensor read stays refused to customers by the final ELSE.
   IF rpc IN ('get_temperature_report','get_sensor_report_devices') AND role_name IN ('staff','customer') THEN RETURN; END IF;
