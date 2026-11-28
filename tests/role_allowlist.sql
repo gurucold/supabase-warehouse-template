@@ -80,6 +80,8 @@ INSERT INTO ra_rpc(name,staff,customer) VALUES
  -- migration 188 (WH-177): a phone hands over its connection notes (any account), the per-day history is for administrators only
  ('get_temperature_report',true,'any'),('get_sensor_report_devices',true,'any'),
  ('submit_connection_notes',true,'any'),('get_connection_history',false,'no'),
+ -- WH-411: every signed-in account names its own session when it has no name yet (tests/session_device_name_411.sql)
+ ('set_session_device_name',true,'any'),
  -- a customer's own documents, carts and reports; staff for every customer
  ('get_grn_details',true,'own'),('get_grn_item_dispatches',true,'own'),('get_grn_item_rates',true,'own'),('get_dispatch_details',true,'own'),
  ('get_invoice_data',true,'own'),('get_invoice_detail',true,'own'),('get_invoice_items_detailed',true,'own'),
@@ -123,6 +125,8 @@ INSERT INTO ra_rpc(name,staff,customer) VALUES
  ('get_grn_prefixes_with_stock',true,'no'),('get_all_grn_activity',true,'no'),
  ('search_customers',true,'no'),('get_supervisors',true,'no'),('get_vehicle_suggestions',true,'no'),
  ('register_grn_image_upload',true,'no'),('confirm_grn_image_upload',true,'no'),
+ -- WH-385: a photo of a saved GRN that could not be sent; the staff roles, never a customer account (tests/grn_missing_photos_385.sql)
+ ('mark_grn_photo_missing',true,'no'),
  ('cancel_grn_image_upload',true,'no'),('upload_grn_image',true,'no'),
  ('register_dispatch_image_upload',true,'no'),('confirm_dispatch_image_upload',true,'no'),
  ('cancel_dispatch_image_upload',true,'no'),

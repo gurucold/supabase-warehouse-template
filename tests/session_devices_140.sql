@@ -215,7 +215,7 @@ UPDATE warehouse_security.refresh_sessions SET created_ip = '2001:db8:abcd:1234:
 SELECT pg_temp.sd_as(:'admin_claims', format('SELECT public.list_user_sessions(%L)', :'staff_profile')) AS listed \gset
 SELECT pg_temp.sd_assert(:'listed'::jsonb->>'success' = 'true' AND jsonb_array_length(:'listed'::jsonb #> '{data,sessions}') = 10,
  'an administrator lists the ten sessions of a staff member: '||:'listed');
-SELECT pg_temp.sd_assert((SELECT bool_and(s ?& ARRAY['id','user_agent','created_ip','created_at','last_refreshed_at','expires_at','is_current'])
+SELECT pg_temp.sd_assert((SELECT bool_and(s ?& ARRAY['id','user_agent','device_name','created_ip','created_at','last_refreshed_at','expires_at','is_current'])
   FROM jsonb_array_elements(:'listed'::jsonb #> '{data,sessions}') s), 'every session carries the agreed fields');
 SELECT pg_temp.sd_assert((SELECT bool_and((a->>'created_at')::timestamptz >= (b->>'created_at')::timestamptz) FROM
   (SELECT s AS a, lead(s) OVER (ORDER BY ord) AS b FROM jsonb_array_elements(:'listed'::jsonb #> '{data,sessions}') WITH ORDINALITY t(s,ord)) q WHERE b IS NOT NULL),
@@ -326,8 +326,8 @@ SELECT pg_temp.sd_assert(NOT has_function_privilege('anon','public.list_user_ses
   AND has_function_privilege('authenticated','public.revoke_session(uuid)','EXECUTE')
   AND has_function_privilege('service_role','public.list_user_sessions(uuid)','EXECUTE')
   AND has_function_privilege('service_role','public.revoke_session(uuid)','EXECUTE'), 'the two RPCs are for signed-in accounts and the service role');
-SELECT pg_temp.sd_assert(NOT has_function_privilege('authenticated','warehouse_security.issue_session(uuid,uuid,inet,text)','EXECUTE')
-  AND NOT has_function_privilege('anon','warehouse_security.issue_session(uuid,uuid,inet,text)','EXECUTE'), 'issue_session stays internal');
+SELECT pg_temp.sd_assert(NOT has_function_privilege('authenticated','warehouse_security.issue_session(uuid,uuid,inet,text,text)','EXECUTE')
+  AND NOT has_function_privilege('anon','warehouse_security.issue_session(uuid,uuid,inet,text,text)','EXECUTE'), 'issue_session stays internal');
 SELECT pg_temp.sd_assert(NOT EXISTS (SELECT 1 FROM unnest(ARRAY['anon','authenticated']) r, unnest(ARRAY[
    'public.operator_verify_otp(text,text,text,text,inet)','public.operator_verify_otp(text,text,text,text,inet,text)',
    'public.operator_central_exchange(text,text,text,text,timestamptz,text,text,inet,text)',
