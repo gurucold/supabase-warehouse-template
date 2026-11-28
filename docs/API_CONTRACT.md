@@ -1615,6 +1615,15 @@ Items the server refused wait here for a supervisor or administrator; nothing in
   back), and only for items of kind `newGrn`, `newDispatch` and `photos`. `confirm_held_photo_upload` of an accepted item answers the refusal
   `HELD_PHOTO_DOCUMENT_GONE` (the GRN or dispatch was deleted since the accept) or `HELD_PHOTO_LINE_GONE` (the GRN line of an item photo was
   deleted by a later edit): nothing is written and the photo stays pending, so the phone marks it missing with `mark_held_photo_missing`.
+- Photos taken with a saved GRN that could not be sent (WH-385): `mark_grn_photo_missing(p_grn_id uuid, p_client_photo_id text, p_role text,
+  p_grn_item_id uuid DEFAULT NULL, p_reason text DEFAULT NULL)`, administrators, supervisors and staff (a customer account is refused with
+  42501). `p_role` is `header` or `item`. Answers `{success: true, grn_id, client_photo_id, status: 'missing'}`, the same on every repeat
+  (idempotent by client photo id). Refusals, nothing written: `GRN_PHOTO_INVALID` (no id or longer than 100 characters; role not `header` or
+  `item`), `GRN_NOT_FOUND` (no such GRN, or deleted), `GRN_PHOTO_LINE_GONE` (`p_grn_item_id` is not a line of that GRN). A held photo marked
+  missing (before or after the accept) is counted on the GRN the accept made, except with reason `line_gone` or `document_gone`; one confirmed
+  late stops counting; a deleted line or GRN takes its photos with it. `get_grn_details` answers the count as `data.grn.photos_missing`
+  (integer, 0 when none, for every role that gets the GRN, a customer account included); the `goodsreceived` row of the sync feed carries
+  `photos_missing` only when it is above 0. Nothing else about the photos leaves the server.
 - `get_held_items(p_limit int DEFAULT 50, p_offset int DEFAULT 0)`, administrators and supervisors: `{success, rows, total}`, open items only,
   oldest first, an item that follows another directly under it; a row `{id, kind, what, customer_name, recorded_by_name, recorded_at, phone,
   reason, reason_data, state, follows, needs_decision, can_accept, decided_by_name, decided_at, reject_reason, result}` (`reason` is one of

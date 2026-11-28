@@ -89,7 +89,7 @@ BEGIN
     'get_customer_grn_activity','get_customer_grn_items',
     'get_customer_grns_with_stock_dispatch_sorted',
     'search_customers','get_supervisors','get_vehicle_suggestions',
-    'register_grn_image_upload','confirm_grn_image_upload',
+    'register_grn_image_upload','confirm_grn_image_upload','mark_grn_photo_missing',
     'cancel_grn_image_upload','upload_grn_image',
     'register_dispatch_image_upload','confirm_dispatch_image_upload',
     'cancel_dispatch_image_upload',
