@@ -10,7 +10,7 @@
 --     dropped (two overloads with defaults would be ambiguous); a phone that does not send the name still calls it by its two names.
 --     The caller and role checks are unchanged. The function is patched from its present text, as migration 244 does.
 --  3. warehouse_security.held_row (the row of get_held_items, get_held_item, their followers and the sync feed) returns `device_name`
---     (NULL when no name is known) beside the unchanged `phone`, so the shape older apps and the feed know only gains a key.
+--     (only when a name is known; the key is absent otherwise) beside the unchanged `phone`, so a row without a name keeps the same body.
 -- App version gate: the app's INTRODUCED_BY_MIGRATION table (src/config/backendFeatures.ts) gets the key `heldDeviceName`, set to this
 -- migration's number at assembly. No pg_temp helper is left behind. No role is created, altered or dropped.
 
@@ -78,7 +78,6 @@ AS $$
     'recorded_by_name', (SELECT p.name FROM public.user_profiles p WHERE p.id = h.recorded_by),
     'recorded_at', h.recorded_at,
     'phone', h.phone,
-    'device_name', h.device_name,
     'reason', h.reason,
     'reason_data', CASE WHEN h.reason = 'moved' THEN jsonb_build_object(
         'admin_name', (SELECT p.name FROM public.user_profiles p WHERE p.id = h.handed_by),
@@ -91,6 +90,8 @@ AS $$
     'decided_at', h.decided_at,
     'reject_reason', h.reject_reason,
     'result', h.result)
+    -- The key only when a name is known: a row without one keeps the same body, so no checksum changes at the upgrade.
+    || CASE WHEN h.device_name IS NOT NULL THEN jsonb_build_object('device_name', h.device_name) ELSE '{}'::jsonb END
 $$;
 
 DROP FUNCTION pg_temp.patch_function(regprocedure, text[], text[]);
