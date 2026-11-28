@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { handle } from '../functions/operator-otp/handler.ts';
+import { deviceNameCases } from './device-name-cases.mjs';
 
 // No network: every outbound call (PostgREST RPC and MSG91) goes to this stand-in.
 const environment = {
@@ -398,13 +399,8 @@ test('break-glass: refusals carry their code and the right status, and the close
     { status: 503, body: { success: false, error: 'Authentication service unavailable' } });
 });
 
-test('WH-411: the phone name of the body goes to the code sign-in and the break-glass sign-in as p_device_name, cut to 200 characters; otherwise the key is left out', async () => {
-  const cases = [
-    ['Samsung SM-A156E (7F3A)', 'Samsung SM-A156E (7F3A)'],
-    ['y'.repeat(250), 'y'.repeat(200)],
-    [undefined, undefined], ['', undefined], ['   ', undefined], [7, undefined], [null, undefined], [['Samsung'], undefined],
-  ];
-  for (const [sent, expected] of cases) {
+test('WH-411, WH-424: the phone name of the body goes to the code sign-in and the break-glass sign-in as p_device_name, cleaned and cut to 80 code points; otherwise the key is left out and the sign-in goes on', async () => {
+  for (const [sent, expected] of deviceNameCases) {
     const { calls, call } = harness({ operator_break_glass_sign_in: { success: true, data: { action: 'login' } } });
     assert.equal((await call('verify', { ...phone, otp_code: '123456', device_name: sent })).status, 200);
     assert.equal((await call('break-glass', { ...phone, code: '654321', device_name: sent })).status, 200);

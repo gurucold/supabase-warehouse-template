@@ -383,9 +383,21 @@ DELETE FROM warehouse_security.refresh_sessions WHERE id = (:'staff_claims'::jso
 SELECT pg_temp.hh_as(:'admin_claims'::jsonb, 'SELECT public.get_held_items(500, 0)') AS h10_list \gset
 SELECT pg_temp.hh_assert((SELECT count(*) = 1 AND bool_and(r->>'device_name' = 'Samsung SM-A156E (7F3A)' AND r->>'phone' = 'Held Test Phone/1.0')
     FROM jsonb_array_elements(:'h10_list'::jsonb->'rows') r WHERE (r->>'id')::uuid = pg_temp.hh_hid('hh-n1'))
-  AND (SELECT count(*) = 1 AND bool_and(r ? 'device_name' AND r->'device_name' = 'null'::jsonb) FROM jsonb_array_elements(:'h10_list'::jsonb->'rows') r
+  AND (SELECT count(*) = 1 AND bool_and(NOT r ? 'device_name' AND r ? 'phone' AND r->>'phone' = 'Held Test Phone/1.0') FROM jsonb_array_elements(:'h10_list'::jsonb->'rows') r
     WHERE (r->>'id')::uuid = pg_temp.hh_hid('hh-n-blank')),
-  'H10: get_held_items answers device_name (null when none) beside phone, after the session ended: ' || left(:'h10_list', 300));
+  'H10: get_held_items answers device_name beside phone only when a name is known (WH-423), after the session ended: ' || left(:'h10_list', 300));
+-- WH-423: a row without a name has exactly the keys it had before the topic "held item device name", so its body and checksum do not change at
+-- the upgrade; a named row has those and device_name.
+CREATE FUNCTION pg_temp.hh_row_keys(key text) RETURNS text LANGUAGE sql AS $$
+  SELECT string_agg(k, ',' ORDER BY k COLLATE "C") FROM public.held_items h, jsonb_object_keys(warehouse_security.held_row(h)) k WHERE h.request_key = key $$;
+SELECT pg_temp.hh_assert(pg_temp.hh_row_keys(k) = 'customer_name,decided_at,decided_by_name,follows,id,kind,needs_decision,phone,reason,reason_data,recorded_at,recorded_by_name,reject_reason,result,state,what',
+  'H10: an unnamed row (' || k || ') has the keys of before, no more and no less: ' || pg_temp.hh_row_keys(k))
+  FROM unnest(ARRAY['hh-k1', 'hh-n-blank', 'hh-n-null']) k;
+SELECT pg_temp.hh_assert(pg_temp.hh_row_keys('hh-n1') = 'customer_name,decided_at,decided_by_name,device_name,follows,id,kind,needs_decision,phone,reason,reason_data,recorded_at,recorded_by_name,reject_reason,result,state,what',
+  'H10: a named row has those keys and device_name: ' || pg_temp.hh_row_keys('hh-n1'));
+SELECT pg_temp.hh_as(:'admin_claims'::jsonb, format('SELECT public.get_held_item(%L::uuid)', pg_temp.hh_hid('hh-n-blank'))) AS h10_unnamed \gset
+SELECT pg_temp.hh_assert(:'h10_unnamed'::jsonb->>'success' = 'true' AND NOT COALESCE(:'h10_unnamed'::jsonb->'item', :'h10_unnamed'::jsonb) ? 'device_name',
+  'H10: get_held_item of an unnamed row has no device_name key: ' || left(:'h10_unnamed', 400));
 SELECT pg_temp.hh_as(:'admin_claims'::jsonb, format('SELECT public.get_held_item(%L::uuid)', pg_temp.hh_hid('hh-n1'))) AS h10_one \gset
 SELECT pg_temp.hh_assert(COALESCE(:'h10_one'::jsonb->'item', :'h10_one'::jsonb)->>'device_name' = 'Samsung SM-A156E (7F3A)', 'H10: get_held_item answers the name: ' || left(:'h10_one', 400));
 SELECT pg_temp.hh_assert(to_regprocedure('public.hold_items(jsonb,uuid)') IS NULL
@@ -393,5 +405,20 @@ SELECT pg_temp.hh_assert(to_regprocedure('public.hold_items(jsonb,uuid)') IS NUL
   AND has_function_privilege('authenticated', 'public.hold_items(jsonb,uuid,text)', 'EXECUTE')
   AND has_function_privilege('service_role', 'public.hold_items(jsonb,uuid,text)', 'EXECUTE'),
   'H10: one hold_items, for signed-in accounts and the service role, not anon');
+
+-- ===== H11. WH-424: hold_items cleans the name (the staff session above is gone; the administrator hands over) =====
+SELECT pg_temp.hh_hold_named(:'admin_claims'::jsonb, jsonb_build_array(pg_temp.hh_item('hh-c-dirty', 'newDispatch', 60, :'ca'::uuid)),
+  E'‮SM​-A156E\n\t\u0085(7F3A)﻿⁦') AS h11_dirty \gset
+SELECT pg_temp.hh_hold_named(:'admin_claims'::jsonb, jsonb_build_array(pg_temp.hh_item('hh-c-emoji', 'newDispatch', 61, :'ca'::uuid)),
+  repeat('a', 79) || E'\U0001F600' || 'b') AS h11_emoji \gset
+SELECT pg_temp.hh_hold_named(:'admin_claims'::jsonb, jsonb_build_array(pg_temp.hh_item('hh-c-unseen', 'newDispatch', 62, :'ca'::uuid)),
+  E'​‍﻿‮\n ') AS h11_unseen \gset
+SELECT pg_temp.hh_assert(:'h11_dirty'::jsonb->>'success' = 'true' AND pg_temp.hh_name('hh-c-dirty') = 'SM-A156E(7F3A)',
+  'H11: control, bidi and zero-width characters are removed: ' || :'h11_dirty' || ' / ' || pg_temp.hh_name('hh-c-dirty'));
+SELECT pg_temp.hh_assert(:'h11_emoji'::jsonb->>'success' = 'true' AND pg_temp.hh_name('hh-c-emoji') = repeat('a', 79) || E'\U0001F600',
+  'H11: an emoji at the 80th place stays whole: ' || pg_temp.hh_name('hh-c-emoji'));
+SELECT pg_temp.hh_assert(:'h11_unseen'::jsonb->>'success' = 'true' AND pg_temp.hh_name('hh-c-unseen') = '<none>'
+  AND position('device_name' IN pg_temp.hh_row_keys('hh-c-unseen')) = 0,
+  'H11: a name of invisible characters only is none, and the item is still held: ' || :'h11_unseen' || ' / ' || pg_temp.hh_name('hh-c-unseen'));
 ROLLBACK;
 \echo 'WH-304 held items hand over (B-H1 to B-H6) checks passed.'

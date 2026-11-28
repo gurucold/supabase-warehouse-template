@@ -213,5 +213,40 @@ SELECT pg_temp.dn_assert(NOT EXISTS (SELECT 1 FROM unnest(ARRAY['anon','authenti
 SELECT pg_temp.dn_assert(NOT has_function_privilege('anon','public.set_session_device_name(text)','EXECUTE')
   AND has_function_privilege('authenticated','public.set_session_device_name(text)','EXECUTE')
   AND has_function_privilege('service_role','public.set_session_device_name(text)','EXECUTE'), 'N6: set_session_device_name is for signed-in accounts');
-\echo 'WH-411 session device name (N1 to N6) checks passed.'
+
+-- ===== N7. WH-424: the one cleaned form (warehouse_security.clean_device_name) on every way into a session =====
+UPDATE public.user_profiles SET active = true WHERE auth_user_id = :'leaver_user'::uuid;
+DELETE FROM warehouse_security.refresh_sessions;
+-- Each character the card names, between two letters.
+SELECT pg_temp.dn_assert(bool_and(warehouse_security.clean_device_name('a' || chr(cp) || 'b') = 'ab'),
+  'N7: control, format and separator characters are removed; kept: ' || COALESCE(string_agg(cp::text, ',') FILTER (WHERE warehouse_security.clean_device_name('a' || chr(cp) || 'b') <> 'ab'), ''))
+  FROM unnest(ARRAY[1, 9, 10, 13, 31, 127, 133, 159, 173, 1564, 8203, 8204, 8205, 8206, 8207, 8232, 8233, 8234, 8238, 8288, 8294, 8297, 65279, 917569, 917631]) cp;
+-- No-break, em, narrow no-break and ideographic spaces become a plain space.
+SELECT pg_temp.dn_assert(bool_and(warehouse_security.clean_device_name('a' || chr(cp) || 'b') = 'a b'), 'N7: other spaces become a plain space')
+  FROM unnest(ARRAY[32, 160, 5760, 8192, 8195, 8202, 8239, 8287, 12288]) cp;
+SELECT pg_temp.dn_assert(warehouse_security.clean_device_name('મારો ફોન (7F3A)') = 'મારો ફોન (7F3A)', 'N7: Gujarati text and its marks are kept');
+SELECT pg_temp.dn_assert(warehouse_security.clean_device_name(E'\U0001F468‍\U0001F469') = E'\U0001F468\U0001F469', 'N7: a joined emoji becomes its whole parts');
+SELECT pg_temp.dn_assert(warehouse_security.clean_device_name(repeat('a', 79) || E'\U0001F600' || 'b') = repeat('a', 79) || E'\U0001F600'
+  AND warehouse_security.clean_device_name(repeat(E'\U0001F600', 81)) = repeat(E'\U0001F600', 80), 'N7: the cut counts characters and never splits an emoji');
+SELECT pg_temp.dn_assert(warehouse_security.clean_device_name(repeat(E'​', 100) || repeat('n', 80)) = repeat('n', 80), 'N7: removed characters do not count towards the 80');
+SELECT pg_temp.dn_assert(warehouse_security.clean_device_name(NULL) IS NULL AND warehouse_security.clean_device_name(E'​‮\n 　') IS NULL,
+  'N7: nothing left is none');
+-- A sign-in with a dirty name stores the clean one; with a name of invisible characters only it signs in with none.
+SELECT pg_temp.dn_code('919888886114') AS code7 \gset
+SELECT public.operator_verify_otp('919888886114', :'code7', NULL, NULL, NULL, 'okhttp/4.9.2', E'‮Sam​sung\n SM (7F3A)﻿') AS w1 \gset
+SELECT pg_temp.dn_assert(:'w1'::jsonb #>> '{data,action}' = 'login' AND (pg_temp.dn_of(:'w1'::jsonb)).device_name = 'Samsung SM (7F3A)',
+  'N7: a sign-in stores the cleaned name: ' || COALESCE((pg_temp.dn_of(:'w1'::jsonb)).device_name, 'NULL'));
+SELECT pg_temp.dn_code('919888886114') AS code8 \gset
+SELECT public.operator_verify_otp('919888886114', :'code8', NULL, NULL, NULL, 'okhttp/4.9.2', E'​‍‮') AS w2 \gset
+SELECT pg_temp.dn_assert(:'w2'::jsonb #>> '{data,action}' = 'login' AND (pg_temp.dn_of(:'w2'::jsonb)).device_name IS NULL,
+  'N7: a name that cannot be cleaned is left out and the sign-in succeeds: ' || :'w2');
+-- set_session_device_name: an invisible-only name leaves the session unnamed, so a real one can still fill it.
+SELECT pg_temp.dn_in(:'staff_user'::uuid) AS w3 \gset
+SELECT pg_temp.dn_set(pg_temp.dn_claims(:'w3'), E'​﻿') AS w3_unseen \gset
+SELECT pg_temp.dn_assert(:'w3_unseen'::jsonb = '{"success":true}'::jsonb AND (pg_temp.dn_row(:'w3')).device_name IS NULL, 'N7: an invisible-only name changes nothing: ' || :'w3_unseen');
+SELECT pg_temp.dn_set(pg_temp.dn_claims(:'w3'), E'Pi​xel  ⁪7a') AS w3_dirty \gset
+SELECT pg_temp.dn_assert((pg_temp.dn_row(:'w3')).device_name = 'Pixel 7a', 'N7: set_session_device_name stores the cleaned name: ' || COALESCE((pg_temp.dn_row(:'w3')).device_name, 'NULL'));
+SELECT pg_temp.dn_assert(NOT EXISTS (SELECT 1 FROM unnest(ARRAY['anon','authenticated','service_role']) r
+  WHERE has_function_privilege(r, 'warehouse_security.clean_device_name(text)', 'EXECUTE')), 'N7: no app role runs the cleaning helper');
+\echo 'WH-411 and WH-424 session device name (N1 to N7) checks passed.'
 ROLLBACK;
