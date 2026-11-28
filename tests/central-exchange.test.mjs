@@ -578,3 +578,32 @@ test('get-public-config advertises central sign-in only where a token could be a
   }
   assert.equal(httpsAddress('https://login.example.test/path?x=1'), true);
 });
+
+test('WH-411: the phone name of the body goes to the exchange as p_device_name, cut to 200 characters; without a usable name the key is left out', async () => {
+  const h = harness();
+  const cases = [
+    ['Samsung SM-A156E (7F3A)', 'Samsung SM-A156E (7F3A)'],
+    ['x'.repeat(200), 'x'.repeat(200)],
+    ['y'.repeat(250), 'y'.repeat(200)],
+    [undefined, undefined], ['', undefined], ['   ', undefined], [7, undefined], [null, undefined], [{ name: 'Samsung' }, undefined], [['Samsung'], undefined],
+  ];
+  for (const [index, [sent, expected]] of cases.entries()) {
+    const token = await sign(claims(START, { jti: `token-id-00000000000004${String(index).padStart(2, '0')}` }));
+    const answered = await h.exchange(token, { device_name: sent }, { 'User-Agent': 'okhttp/4.9.2' });
+    assert.equal(answered.status, 200, `case ${index}`);
+    const { body } = h.rpcCalls[index];
+    // An absent key keeps the ten-argument call, which a facility without the new function signature still answers.
+    assert.equal(Object.hasOwn(body, 'p_device_name'), expected !== undefined, `case ${index}`);
+    assert.equal(body.p_device_name, expected, `case ${index}`);
+    assert.equal(body.p_user_agent, 'okhttp/4.9.2', 'the user agent is passed beside the name, not replaced by it');
+  }
+  assert.equal(h.rpcCalls.length, cases.length);
+});
+
+test('WH-411: the phone name is never logged and never answered, also when the facility refuses the exchange', async () => {
+  const h = harness({ rpcAnswer: { success: false, code: 'account_unavailable' } });
+  await h.exchange(await sign(claims(START)), { device_name: 'Private Phone Name (1A2B)' });
+  assert.equal(h.rpcCalls[0].body.p_device_name, 'Private Phone Name (1A2B)');
+  assert.ok(h.logs.length >= 1, 'the refusal was logged');
+  assert.doesNotMatch(`${h.logs.join('\n')}\n${h.responses.join('\n')}`, /Private Phone Name|1A2B/);
+});
